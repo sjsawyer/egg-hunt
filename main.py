@@ -3,13 +3,27 @@ from __future__ import annotations
 
 import asyncio
 import html.parser
+import json
 import pathlib
+import random
+import re
 import time
 import urllib.parse
+from collections import defaultdict
 from typing import Callable, Iterable
 
 import httpx  # https://github.com/encode/httpx
 
+#BASE_SLEEP_DURATION_SECONDS = 1
+BASE_SLEEP_DURATION_SECONDS = 3
+# starting at 0, how deep should we traverse?
+MAX_DEPTH = 1
+
+# example:
+# https://cdn.shopify.com/s/files/1/0450/5013/4679/products/EGG_2weangreencarrot7oz_600x.png?v=1680797763
+# re.findall(regex, string): List
+
+EGG_REGEX = r'cdn.shopify.com\S+EGG\S+\.png'
 
 class UrlFilterer:
     def __init__(
@@ -23,8 +37,14 @@ class UrlFilterer:
         self.allowed_filetypes = allowed_filetypes
 
     def filter_url(self, base: str, url: str) -> str | None:
-        url = urllib.parse.urljoin(base, url)
-        url, _frag = urllib.parse.urldefrag(url)
+        if url.startswith('https://www.babycharlotte.com'):
+            pass
+        else:
+            # assuming url is a path, something else '/collections/jellycat'
+            url = urllib.parse.urljoin(base, url)
+            url, _frag = urllib.parse.urldefrag(url)
+        #import pdb; pdb.set_trace()
+
         parsed = urllib.parse.urlparse(url)
         if (self.allowed_schemes is not None
                 and parsed.scheme not in self.allowed_schemes):
@@ -84,8 +104,13 @@ class Crawler:
         self.limit = limit
         self.total = 0
 
+        # store parent to eggs
+        self.eggs = defaultdict(list)
+
     async def run(self):
-        await self.on_found_links(self.start_urls)  # prime the queue
+        start_depth = 0
+
+        await self.on_found_links(self.start_urls, start_depth)  # prime the queue
         workers = [
             asyncio.create_task(self.worker())
             for _ in range(self.num_workers)
@@ -103,29 +128,40 @@ class Crawler:
                 return
 
     async def process_one(self):
-        url = await self.todo.get()
+        url, depth = await self.todo.get()
         try:
-            await self.crawl(url)
+            await self.crawl(url, depth)
         except Exception as exc:
             # retry handling here...
-            pass
+            print('encountered exception:', exc)
         finally:
             self.todo.task_done()
 
-    async def crawl(self, url: str):
-        print('crawling', url)
+    def find_eggs(self, text: str) -> list:
+        # find images, search for eggs and add to list
+        return re.findall(EGG_REGEX, text)
+
+    async def crawl(self, url: str, depth: int):
+        print('crawlingg', url)
 
         # rate limit here...
-        await asyncio.sleep(.1)
+        # sleep between 0.5 and 1.5 seconds
+        sleep_dur = BASE_SLEEP_DURATION_SECONDS + random.random() - 0.5
+        await asyncio.sleep(sleep_dur)
 
         response = await self.client.get(url, follow_redirects=True)
+
+        # get images
+        eggs = self.find_eggs(response.text)
+        if eggs:
+            self.eggs[url].extend(eggs)
 
         found_links = await self.parse_links(
             base=str(response.url),
             text=response.text,
         )
 
-        await self.on_found_links(found_links)
+        await self.on_found_links(found_links, depth)
 
         self.done.add(url)
 
@@ -134,26 +170,30 @@ class Crawler:
         parser.feed(text)
         return parser.found_links
 
-    async def on_found_links(self, urls: set[str]):
+    async def on_found_links(self, urls: set[str], depth: int):
         new = urls - self.seen
         self.seen.update(new)
 
         # await save to database or file here...
 
         for url in new:
-            await self.put_todo(url)
+            await self.put_todo(url, depth)
 
-    async def put_todo(self, url: str):
+    async def put_todo(self, url: str, depth: int):
+        if depth == MAX_DEPTH:
+            # don't go any deeper
+            return
+
         if self.total >= self.limit:
             return
         self.total += 1
-        await self.todo.put(url)
+        await self.todo.put((url, depth + 1))
 
 
 async def main():
     filterer = UrlFilterer(
         #allowed_domains={"babycharlotte"},
-        allowed_domains={"mCoding.io"},
+        allowed_domains={"babycharlotte.com", "www.babycharlotte.com"},
         allowed_schemes={"http", "https"},
         allowed_filetypes={".html", ".php", ""},
     )
@@ -162,10 +202,11 @@ async def main():
     async with httpx.AsyncClient() as client:
         crawler = Crawler(
             client=client,
-            urls=["https://mcoding.io/"],
+            urls=("https://www.babycharlotte.com/collections/all?page=" + str(i)
+                  for i in range(185)),
             filter_url=filterer.filter_url,
             workers=5,
-            limit=25,
+            limit=10000,
         )
         await crawler.run()
     end = time.perf_counter()
@@ -177,6 +218,11 @@ async def main():
     print(f"Crawled: {len(crawler.done)} URLs")
     print(f"Found: {len(seen)} URLs")
     print(f"Done in {end - start:.2f}s")
+
+    print()
+    print()
+    print("Eggs found:")
+    print(json.dumps(crawler.eggs, indent=2))
 
 
 if __name__ == '__main__':
