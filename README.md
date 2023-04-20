@@ -3,7 +3,7 @@
 Just a simple script to find a bunch of eggs hidden around a website. Nothing
 more to be said really.
 
-![eggs](https://www.clipartmax.com/png/small/2-27848_easter-eggs-in-grass-clip-art-easter-egg-clip-art.png)
+![eggs](https://www.goodfreephotos.com/svgfiles/final1903-easter-eggs.svg)
 
 ## Usage
 
