@@ -3,6 +3,8 @@
 Just a simple script to find a bunch of eggs hidden around a website. Nothing
 more to be said really.
 
+![eggs](https://www.clipartmax.com/png/small/2-27848_easter-eggs-in-grass-clip-art-easter-egg-clip-art.png)
+
 ## Usage
 
 Ensure the ``DOMAIN`` environment variable is set. After installing the
