@@ -15,4 +15,4 @@ script:
 python3 main.py
 ```
 
-and enjoy your eggs. Unfortnately they only come hard boiled.
+and enjoy your eggs. Unfortunately they only come hard boiled.
